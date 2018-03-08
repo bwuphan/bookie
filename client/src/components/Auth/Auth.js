@@ -1,93 +1,66 @@
-import React, { Component } from 'react';
-import Auth0Lock from 'auth0-lock';
-import Login from './Login.js';
-import Home from './Home.js';
-import Auth0 from '../../config/auth0.js';
+import auth0 from 'auth0-js';
+import { AUTH_CONFIG } from './auth0-variables';
+import { browserHistory } from 'react-router';
 
-class Auth extends Component {
-  constructor(props) {
-    super(props);
-    this.state = {
-      idToken: null,
-      profile: null
-    };
+export default class Auth {
+  auth0 = new auth0.WebAuth({
+    domain: AUTH_CONFIG.domain,
+    clientID: AUTH_CONFIG.clientId,
+    redirectUri: AUTH_CONFIG.callbackUrl,
+    audience: `https://${AUTH_CONFIG.domain}/userinfo`,
+    responseType: 'token id_token',
+    scope: 'openid'
+  });
+
+  constructor() {
     this.login = this.login.bind(this);
     this.logout = this.logout.bind(this);
-  }
-
-  componentDidMount() {
-    this.lock = new Auth0Lock(Auth0.CLIENT_ID, Auth0.DOMAIN, {
-      auth: {
-        responseType: 'token'
-      }
-    });
-
-    // Check if ID Token already on local storage
-    var token = this.getToken();
-    if (token) {
-      this._doAuthentication.call(this, {idToken: token});
-    }
-
-    // add callback for lock 'authenticated' event
-    this.lock.on('authenticated', this._doAuthentication.bind(this));
-  }
-
-  _doAuthentication(authResult) {
-    // saves the user token to local storage and state
-    localStorage.setItem('id_token', authResult.idToken);
-    this.setState({
-      idToken: authResult.idToken
-    });
-    this.setProfile(authResult.idToken);
-  }
-
-  setProfile(idToken) {
-    this.lock.getProfile(idToken, (err, profile) => {
-      if (err) {
-        console.log('Error loading profile:', err);
-        return;
-      }
-      this.setState({
-        profile: profile
-      });
-    });
+    this.handleAuthentication = this.handleAuthentication.bind(this);
+    this.isAuthenticated = this.isAuthenticated.bind(this);
   }
 
   login() {
-    // call the show method to display the widget
-    this.lock.show()
+    this.auth0.authorize();
   }
 
-  loggedIn() {
-    // checks for a saved token and if it's valid
-    return !!this.getToken();
-  }
-
-  getToken() {
-    // retrieves the user token from local storage
-    return localStorage.getItem('id_token');
-  }
-
-  logout() {
-    // clear user token and profile data from local storage and state
-    localStorage.removeItem('id_token');
-    this.setState({
-      idToken: null,
-      profile: null
+  handleAuthentication() {
+    this.auth0.parseHash((err, authResult) => {
+      if (authResult && authResult.accessToken && authResult.idToken) {
+        this.setSession(authResult);
+        console.log('logged in', authResult);
+        browserHistory.push('/');
+      } else if (err) {
+        console.log(err);
+        alert(`Error: ${err.error}. Check the console for further details.`);
+        browserHistory.push('/');
+      }
     });
   }
 
-  render() {
-    if (this.state.profile) {
-      return (
-        <Home profile={this.state.profile} logout={this.logout} />
-      );
-    } else {
-      return (
-        <Login login={this.login} />
-      );
-    }
+  setSession(authResult) {
+    // Set the time that the access token will expire at
+    let expiresAt = JSON.stringify((authResult.expiresIn * 1000) + new Date().getTime());
+    localStorage.setItem('access_token', authResult.accessToken);
+    localStorage.setItem('id_token', authResult.idToken);
+    localStorage.setItem('expires_at', expiresAt);
+    console.log('SESSION SET');
+    // navigate to the home route
+  }
+
+  logout() {
+    // Clear access token and ID token from local storage
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('id_token');
+    localStorage.removeItem('expires_at');
+    console.log('LOGGED OUT');
+    // navigate to the home route
+  }
+
+  isAuthenticated() {
+    // Check whether the current time is past the
+    // access token's expiry time
+    let expiresAt = JSON.parse(localStorage.getItem('expires_at'));
+    console.log(expiresAt)
+    return new Date().getTime() < expiresAt;
   }
 }
-
-export default Auth;
